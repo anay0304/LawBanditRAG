@@ -7,12 +7,12 @@ function DropUpload({ onFile }: { onFile: (file: File) => void }) {
   const [over, setOver] = useState(false);
   return (
     <div
-      onDragOver={(e) => {
+      onDragOver={(e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         setOver(true);
       }}
       onDragLeave={() => setOver(false)}
-      onDrop={(e) => {
+      onDrop={(e: React.DragEvent<HTMLDivElement>) => {
         e.preventDefault();
         setOver(false);
         const f = e.dataTransfer.files?.[0];
@@ -29,7 +29,10 @@ function DropUpload({ onFile }: { onFile: (file: File) => void }) {
           type="file"
           accept="application/pdf"
           hidden
-          onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])}
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            if (f) onFile(f);
+          }}
         />
       </label>
     </div>
@@ -47,11 +50,12 @@ export default function Home() {
     try {
       const url = existingDocId ? `/api/upload?docId=${existingDocId}` : "/api/upload";
       const res = await fetch(url, { method: "POST", body: fd });
-      const data = await res.json();
+      const data: { ok?: boolean; docId?: string; filename?: string; error?: string } = await res.json();
       if (!res.ok) throw new Error(data.error || "Upload failed");
-      router.push(`/chat?docId=${data.docId}&file=${encodeURIComponent(data.filename)}`);
-    } catch (e: any) {
-      alert(e.message);
+      router.push(`/chat?docId=${data.docId}&file=${encodeURIComponent(data.filename || file.name)}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(msg);
     } finally {
       setLoading(false);
     }
@@ -65,8 +69,9 @@ export default function Home() {
       const blob = await res.blob();
       const file = new File([blob], "sample.pdf", { type: "application/pdf" });
       await uploadFile(file);
-    } catch (e: any) {
-      alert(e.message);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      alert(msg);
     } finally {
       setLoading(false);
     }

@@ -4,6 +4,10 @@ import { getVectorStore } from "@/lib/db";
 import { PromptTemplate } from "@langchain/core/prompts";
 import { ContextualCompressionRetriever } from "langchain/retrievers/contextual_compression";
 import { LLMChainExtractor } from "langchain/retrievers/document_compressors/chain_extract";
+import type { Document } from "@langchain/core/documents";
+
+type Meta = Record<string, unknown>;
+type Doc = Document<Meta>;
 
 type Source = { filename: string; page: number };
 type Snippet = { filename: string; page: number; text: string };
@@ -23,7 +27,7 @@ Context:
 Write a precise answer in 3–6 sentences.`
 );
 
-async function expandQuery(q: string) {
+async function expandQuery(q: string): Promise<string> {
   const llm = new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 });
   const hyp = await llm.invoke(
     `Write a concise 2–3 sentence hypothetical answer (no fluff) to this question:\n"${q}".`
@@ -35,7 +39,7 @@ export async function askRag(question: string, docId: string) {
   const store = await getVectorStore();
 
   // 1) Contextual compression retriever (keeps only relevant spans)
-  const baseRetriever = store.asRetriever({ k: 12, filter: { docId } as any });
+  const baseRetriever = store.asRetriever({ k: 12, filter: { docId } as unknown as Meta });
   const compressor = LLMChainExtractor.fromLLM(
     new ChatOpenAI({ model: "gpt-4o-mini", temperature: 0 })
   );
@@ -44,35 +48,35 @@ export async function askRag(question: string, docId: string) {
     baseRetriever,
   });
 
-  // compressed docs for the original question
-  const compressed = await ccRetriever.getRelevantDocuments(question);
+  const compressedDocs = (await ccRetriever.getRelevantDocuments(question)) as Doc[];
 
-  // 2) HyDE: expand the query and search with the hypothetical answer too
+  // 2) HyDE: expand the query and search with the hypothetical answer
   const expanded = await expandQuery(question);
-  const withScores = await store.similaritySearchWithScore(expanded, 8, {
-    filter: { docId } as any,
-  });
+  const withScores = (await store.similaritySearchWithScore(expanded, 8, {
+    filter: { docId } as unknown as Meta,
+  })) as [Doc, number][];
 
-  // Filter weak matches from HyDE results
-  const hydeStrong = withScores.filter(([, s]) => s > 0.2).map(([d]) => d);
+  const hydeStrong: Doc[] = withScores.filter(([, s]) => s > 0.2).map(([d]) => d);
 
-  // 3) Merge + dedupe (prefer compressed docs, then HyDE strong matches)
-  const keyed = new Map<string, any>();
-  const keyOf = (d: any) =>
-    `${d.metadata?.filename}|${d.metadata?.pageNumber}|${d.pageContent.slice(
-      0,
-      120
-    )}`;
-  for (const d of compressed) keyed.set(keyOf(d), d);
+  // 3) Merge + dedupe (prefer compressed docs, then HyDE strong)
+  const keyOf = (d: Doc) =>
+    `${String(d.metadata?.filename || "document.pdf")}|${String(
+      d.metadata?.pageNumber ?? ""
+    )}|${d.pageContent.slice(0, 120)}`;
+
+  const keyed = new Map<string, Doc>();
+  for (const d of compressedDocs) keyed.set(keyOf(d), d);
   for (const d of hydeStrong) if (!keyed.has(keyOf(d))) keyed.set(keyOf(d), d);
 
-  const docs = Array.from(keyed.values()).slice(0, 8);
+  const docs: Doc[] = Array.from(keyed.values()).slice(0, 8);
 
   // 4) Build context
   const context = docs
     .map(
-      (d: any) =>
-        `(${d.metadata?.filename} p.${d.metadata?.pageNumber ?? "?"}) ${d.pageContent}`
+      (d) =>
+        `(${String(d.metadata?.filename || "document.pdf")} p.${String(
+          d.metadata?.pageNumber ?? "?"
+        )}) ${d.pageContent}`
     )
     .join("\n\n");
 
@@ -80,7 +84,7 @@ export async function askRag(question: string, docId: string) {
   const seen = new Set<string>();
   const sources: Source[] = [];
   for (const d of docs) {
-    const filename = (d.metadata?.filename as string) ?? "document.pdf";
+    const filename = String(d.metadata?.filename || "document.pdf");
     const page = Number(d.metadata?.pageNumber ?? 0) || 0;
     const key = `${filename}|${page}`;
     if (seen.has(key)) continue;
@@ -92,12 +96,10 @@ export async function askRag(question: string, docId: string) {
   );
 
   // 6) Snippets for the Sources drawer
-  const snippets: Snippet[] = docs.slice(0, 4).map((d: any) => ({
-    filename: (d.metadata?.filename as string) ?? "document.pdf",
+  const snippets: Snippet[] = docs.slice(0, 4).map((d) => ({
+    filename: String(d.metadata?.filename || "document.pdf"),
     page: Number(d.metadata?.pageNumber ?? 0) || 0,
-    text:
-      d.pageContent.slice(0, 500) +
-      (d.pageContent.length > 500 ? "…" : ""),
+    text: d.pageContent.slice(0, 500) + (d.pageContent.length > 500 ? "…" : ""),
   }));
 
   if (sources.length === 0) {
