@@ -1,7 +1,11 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
+
+export const dynamic = "force-dynamic";     // disable static pre-render
+export const revalidate = 0;                // no ISR
+export const dynamicParams = true;          // allow unknown search params
 
 type Source = { filename: string; page: number };
 type Snippet = { filename: string; page: number; text: string };
@@ -13,7 +17,17 @@ type ChatApiResponse = {
   error?: string;
 };
 
+/* ---------- wrapper: satisfies "useSearchParams should be wrapped in Suspense" ---------- */
 export default function ChatPage() {
+  return (
+    <Suspense fallback={<main className="mx-auto max-w-3xl p-6">Loading chat…</main>}>
+      <ChatPageInner />
+    </Suspense>
+  );
+}
+
+/* --------------------------------- real page --------------------------------- */
+function ChatPageInner() {
   const params = useSearchParams();
   const docId = params.get("docId") ?? "";
   const filename = params.get("file") ?? "document.pdf";
