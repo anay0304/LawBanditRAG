@@ -6,6 +6,12 @@ import { useSearchParams } from "next/navigation";
 type Source = { filename: string; page: number };
 type Snippet = { filename: string; page: number; text: string };
 type ChatMessage = { role: "user" | "assistant"; content: string; sources?: Source[] };
+type ChatApiResponse = {
+  answer?: string;
+  sources?: Source[];
+  snippets?: Snippet[];
+  error?: string;
+};
 
 export default function ChatPage() {
   const params = useSearchParams();
@@ -23,7 +29,6 @@ export default function ChatPage() {
     listRef.current?.scrollTo(0, listRef.current.scrollHeight);
   }, [messages, loading]);
 
-  // shortcuts: S toggles sources, Cmd/Ctrl+K opens quick palette (optional)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key.toLowerCase() === "s") {
@@ -62,7 +67,10 @@ export default function ChatPage() {
       });
 
       const ct = res.headers.get("content-type") || "";
-      const payload = ct.includes("application/json") ? await res.json() : { error: await res.text() };
+      const payload: ChatApiResponse = ct.includes("application/json")
+        ? await res.json()
+        : { error: await res.text() };
+
       if (!res.ok) throw new Error(payload.error || `HTTP ${res.status}`);
 
       const assistant: ChatMessage = {
@@ -73,8 +81,9 @@ export default function ChatPage() {
       setSnippets(payload.snippets ?? []);
       setMessages((m) => [...m, assistant]);
       setSuggestions(makeSuggestions());
-    } catch (e: any) {
-      setMessages((m) => [...m, { role: "assistant", content: `Error: ${e.message}` }]);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setMessages((m) => [...m, { role: "assistant", content: `Error: ${msg}` }]);
     } finally {
       setLoading(false);
     }
@@ -91,7 +100,7 @@ export default function ChatPage() {
     const fd = new FormData();
     fd.append("file", file);
     const res = await fetch(`/api/upload?docId=${docId}`, { method: "POST", body: fd });
-    const data = await res.json();
+    const data: { ok?: boolean; filename?: string; error?: string } = await res.json();
     if (!res.ok) return alert(data.error || "Upload failed");
     alert(`Added ${data.filename} to this collection`);
   }
@@ -124,7 +133,6 @@ export default function ChatPage() {
           Chatting with: <span className="font-mono">{filename}</span>
         </h1>
         <div className="flex gap-2">
-          {/* Add more PDFs to the same collection */}
           <label className="px-2 py-1 rounded border border-zinc-700 hover:bg-zinc-900 cursor-pointer">
             Add PDF
             <input
@@ -171,7 +179,6 @@ export default function ChatPage() {
             >
               <div className="prose prose-invert max-w-none">{m.content}</div>
 
-              {/* Footnote-style citations that jump to sources drawer */}
               {m.role === "assistant" && m.sources && m.sources.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">
                   {m.sources.map((s, idx) => (
@@ -244,7 +251,6 @@ export default function ChatPage() {
         </button>
       </div>
 
-      {/* SOURCES DRAWER (resizable) */}
       <aside
         id="src-drawer"
         className="hidden lg:flex fixed right-4 top-24 max-h-[70vh] overflow-y-auto rounded border border-zinc-800 bg-zinc-900/70 backdrop-blur p-3 space-y-3"
