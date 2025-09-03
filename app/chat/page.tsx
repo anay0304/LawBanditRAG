@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import ChatClient from "./chatClient";
+import ChatClient from "./ChatClient";
 
 // These must live in a *server* file, not a "use client" file.
 export const dynamic = "force-dynamic";
