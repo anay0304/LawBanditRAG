@@ -1,6 +1,6 @@
 // app/chat/page.tsx
 import { Suspense } from "react";
-import ChatClient from "./ChatClient";
+import ChatClient from "./chatClient";
 
 // These must live in a *server* file, not a "use client" file.
 export const dynamic = "force-dynamic";
